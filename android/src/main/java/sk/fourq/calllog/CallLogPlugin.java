@@ -225,9 +225,12 @@ public class CallLogPlugin implements FlutterPlugin, ActivityAware, MethodCallHa
                 map.put("timestamp", cursor.getLong(3));
                 map.put("duration", cursor.getInt(4));
 
-                String contactName = getContactName(cursor.getString(1), ctx); // Always fetch contact name dynamically
+                // Always fetch contact name & photo uri dynamically
+                String contactName = getContactName(cursor.getString(1), ctx);
+                String photoUri = getContactPhotoUri(cursor.getString(1), ctx);
 
-                map.put("name", contactName); // If contact name is null, it stays null
+                map.put("name", contactName);
+                map.put("photoUri", photoUri);
 
                 map.put("cachedNumberType", cursor.getInt(6));
                 map.put("cachedNumberLabel", cursor.getString(7));
@@ -260,6 +263,50 @@ public class CallLogPlugin implements FlutterPlugin, ActivityAware, MethodCallHa
         }
 
         return contactName;
+    }
+
+    private String getContactPhotoUri(final String phoneNumber, Context context) {
+        if (phoneNumber == null) {
+            return null;
+        }
+
+        Uri uri = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                Uri.encode(phoneNumber)
+        );
+
+        String[] projection = new String[]{
+            ContactsContract.PhoneLookup.PHOTO_URI,
+            ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI
+        };
+
+        Cursor cursor = context.getContentResolver().query(uri, projection, null, null, null);
+
+        if (cursor != null) {
+            if (cursor.moveToFirst()) {
+                String fullPhoto = cursor.getString(0);      // PHOTO_URI
+                String thumbPhoto = cursor.getString(1);     // PHOTO_THUMBNAIL_URI
+
+                cursor.close();
+
+                // If full photo exists → return it
+                if (fullPhoto != null && !fullPhoto.isEmpty()) {
+                    return fullPhoto;
+                }
+
+                // Else if thumbnail exists → return it
+                if (thumbPhoto != null && !thumbPhoto.isEmpty()) {
+                    return thumbPhoto;
+                }
+
+                // No photo → return null
+                return null;
+            }
+            cursor.close();
+        }
+
+        // Contact not found → return null
+        return null;
     }
 
     /**
