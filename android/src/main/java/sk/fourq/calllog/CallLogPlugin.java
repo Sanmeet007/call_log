@@ -1,5 +1,7 @@
 package sk.fourq.calllog;
 
+import java.util.Map;
+import java.util.HashMap;
 import android.content.ContentResolver;
 import android.provider.ContactsContract;
 import android.net.Uri;
@@ -225,9 +227,10 @@ public class CallLogPlugin implements FlutterPlugin, ActivityAware, MethodCallHa
                 map.put("timestamp", cursor.getLong(3));
                 map.put("duration", cursor.getInt(4));
 
-                // Always fetch contact name & photo uri dynamically
-                String contactName = getContactName(cursor.getString(1), ctx);
-                String photoUri = getContactPhotoUri(cursor.getString(1), ctx);
+                ContactInfo info = getContactDetails(cursor.getString(1), ctx);
+                String contactName = info.name;
+                String photoUri = info.photoUri;
+
 
                 map.put("name", contactName);
                 map.put("photoUri", photoUri);
@@ -247,66 +250,73 @@ public class CallLogPlugin implements FlutterPlugin, ActivityAware, MethodCallHa
         }
     }
 
-    private String getContactName(final String phoneNumber, Context context) {
-        Uri uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(phoneNumber));
+    // --------------------------------------------------------
+    // Combined Cache (stores BOTH name + photo for each number)
+    // --------------------------------------------------------
+    private final Map<String, ContactInfo> contactCache = new HashMap<>();
 
-        String[] projection = new String[]{ContactsContract.PhoneLookup.DISPLAY_NAME};
+    // Data container for name + photo
+    private static class ContactInfo {
 
-        String contactName = "";
-        Cursor cursor = context.getContentResolver().query(uri, projection, null, null, null);
+        String name;
+        String photoUri;
 
-        if (cursor != null) {
-            if (cursor.moveToFirst()) {
-                contactName = cursor.getString(0);
-            }
-            cursor.close();
+        ContactInfo(String name, String photoUri) {
+            this.name = name;
+            this.photoUri = photoUri;
         }
-
-        return contactName;
     }
 
-    private String getContactPhotoUri(final String phoneNumber, Context context) {
+    private ContactInfo getContactDetails(final String phoneNumber, Context context) {
         if (phoneNumber == null) {
-            return null;
+            return new ContactInfo("", null);
         }
 
+        // 1. --- Check cache first ---
+        if (contactCache.containsKey(phoneNumber)) {
+            return contactCache.get(phoneNumber);
+        }
+
+        // 2. --- Query Contacts Provider once ---
         Uri uri = Uri.withAppendedPath(
                 ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
                 Uri.encode(phoneNumber)
         );
 
         String[] projection = new String[]{
+            ContactsContract.PhoneLookup.DISPLAY_NAME,
             ContactsContract.PhoneLookup.PHOTO_URI,
             ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI
         };
 
         Cursor cursor = context.getContentResolver().query(uri, projection, null, null, null);
 
+        String name = "";
+        String fullPhoto = null;
+        String thumbPhoto = null;
+
         if (cursor != null) {
             if (cursor.moveToFirst()) {
-                String fullPhoto = cursor.getString(0);      // PHOTO_URI
-                String thumbPhoto = cursor.getString(1);     // PHOTO_THUMBNAIL_URI
-
-                cursor.close();
-
-                // If full photo exists → return it
-                if (fullPhoto != null && !fullPhoto.isEmpty()) {
-                    return fullPhoto;
-                }
-
-                // Else if thumbnail exists → return it
-                if (thumbPhoto != null && !thumbPhoto.isEmpty()) {
-                    return thumbPhoto;
-                }
-
-                // No photo → return null
-                return null;
+                name = cursor.getString(0);     // DISPLAY_NAME
+                fullPhoto = cursor.getString(1); // PHOTO_URI
+                thumbPhoto = cursor.getString(2); // THUMB_URI
             }
             cursor.close();
         }
 
-        // Contact not found → return null
-        return null;
+        // Best available photo
+        String photoUri = null;
+        if (fullPhoto != null && !fullPhoto.isEmpty()) {
+            photoUri = fullPhoto;
+        } else if (thumbPhoto != null && !thumbPhoto.isEmpty()) {
+            photoUri = thumbPhoto;
+        }
+
+        // 3. --- Store in cache ---
+        ContactInfo info = new ContactInfo(name, photoUri);
+        contactCache.put(phoneNumber, info);
+
+        return info;
     }
 
     /**
