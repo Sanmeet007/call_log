@@ -5,6 +5,7 @@ import java.util.HashMap;
 import android.content.ContentResolver;
 import android.provider.ContactsContract;
 import android.net.Uri;
+import android.telephony.PhoneNumberUtils;
 import android.Manifest;
 import android.annotation.TargetApi;
 import android.app.Activity;
@@ -231,7 +232,6 @@ public class CallLogPlugin implements FlutterPlugin, ActivityAware, MethodCallHa
                 String contactName = info.name;
                 String photoUri = info.photoUri;
 
-
                 map.put("name", contactName);
                 map.put("photoUri", photoUri);
 
@@ -269,42 +269,53 @@ public class CallLogPlugin implements FlutterPlugin, ActivityAware, MethodCallHa
 
     private ContactInfo getContactDetails(final String phoneNumber, Context context) {
         if (phoneNumber == null) {
-            return new ContactInfo("", null);
+            return new ContactInfo(null, null);
         }
 
-        // 1. --- Check cache first ---
-        if (contactCache.containsKey(phoneNumber)) {
-            return contactCache.get(phoneNumber);
+        // Normalize number for cache key
+        String key = PhoneNumberUtils.normalizeNumber(phoneNumber);
+
+        // 1. Check cache
+        if (contactCache.containsKey(key)) {
+            return contactCache.get(key);
         }
 
-        // 2. --- Query Contacts Provider once ---
-        Uri uri = Uri.withAppendedPath(
-                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
-                Uri.encode(phoneNumber)
-        );
-
-        String[] projection = new String[]{
-            ContactsContract.PhoneLookup.DISPLAY_NAME,
-            ContactsContract.PhoneLookup.PHOTO_URI,
-            ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI
-        };
-
-        Cursor cursor = context.getContentResolver().query(uri, projection, null, null, null);
-
-        String name = "";
+        String name = null;
         String fullPhoto = null;
         String thumbPhoto = null;
 
-        if (cursor != null) {
-            if (cursor.moveToFirst()) {
-                name = cursor.getString(0);     // DISPLAY_NAME
-                fullPhoto = cursor.getString(1); // PHOTO_URI
-                thumbPhoto = cursor.getString(2); // THUMB_URI
+        try {
+            // 2. Query Contacts Provider
+            Uri uri = Uri.withAppendedPath(
+                    ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                    Uri.encode(phoneNumber)
+            );
+
+            String[] projection = new String[]{
+                ContactsContract.PhoneLookup.DISPLAY_NAME,
+                ContactsContract.PhoneLookup.PHOTO_URI,
+                ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI
+            };
+
+            Cursor cursor = context.getContentResolver().query(uri, projection, null, null, null);
+
+            if (cursor != null) {
+                if (cursor.moveToFirst()) {
+                    name = cursor.getString(0);
+                    fullPhoto = cursor.getString(1);
+                    thumbPhoto = cursor.getString(2);
+                }
+                cursor.close();
             }
-            cursor.close();
+
+        } catch (Exception e) {
+            // If ANYTHING goes wrong, return nulls safely
+            ContactInfo safeInfo = new ContactInfo(null, null);
+            contactCache.put(key, safeInfo);
+            return safeInfo;
         }
 
-        // Best available photo
+        // Choose best available photo
         String photoUri = null;
         if (fullPhoto != null && !fullPhoto.isEmpty()) {
             photoUri = fullPhoto;
@@ -312,9 +323,9 @@ public class CallLogPlugin implements FlutterPlugin, ActivityAware, MethodCallHa
             photoUri = thumbPhoto;
         }
 
-        // 3. --- Store in cache ---
+        // 3. Store in cache
         ContactInfo info = new ContactInfo(name, photoUri);
-        contactCache.put(phoneNumber, info);
+        contactCache.put(key, info);
 
         return info;
     }
