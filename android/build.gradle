@@ -1,36 +1,26 @@
+
 group 'sk.fourq.calllog'
 version '1.0-SNAPSHOT'
-
-buildscript {
-    repositories {
-        google()
-        jcenter()
-    }
-
-    dependencies {
-        classpath 'com.android.tools.build:gradle:3.3.1'
-    }
-}
-
-rootProject.allprojects {
-    repositories {
-        google()
-        jcenter()
-    }
-}
 
 apply plugin: 'com.android.library'
 
 android {
-    compileSdkVersion 35
+    namespace 'sk.fourq.calllog'
+    compileSdk 35
 
     defaultConfig {
-        minSdkVersion 21
+        minSdk 21
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
-    lintOptions {
+
+    lint {
         disable 'InvalidPackage'
     }
+}
+
+repositories {
+    google()
+    mavenCentral()
 }
 
 dependencies {
